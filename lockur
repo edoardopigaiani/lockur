@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Author: Edoardo Pigaiani <pigaianiedoardo@gmail.com>
+# Dependencies: imagemagick, i3lock, maim
+set -o errexit -o noclobber -o nounset
+
+HUE=(-level 0%,100%,0.5)
+EFFECT=(-filter Gaussian -resize 20% -define filter:sigma=1.0 -resize 500.5%)
+IMAGE="$(mktemp).png"
+
+OPTIONS="Options:
+    -h, --help   This help menu.
+    -p, --pixelate   Pixelate the background instead of blur, runs faster."
+
+# Move pipefail down as for some reason "convert -list font" returns 1
+set -o pipefail
+trap 'rm -f "$IMAGE"' EXIT
+TEMP="$(getopt -o :hpgf: -l help,pixelate,greyscale,font: --name "$0" -- "$@")"
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -h|--help)
+            printf "Usage: $(basename $0) [options]\n\n$OPTIONS\n\n" ; exit 1 ;;
+        -p|--pixelate) EFFECT=(-scale 10% -scale 1000%) ; shift ;;
+        --) shift ; break ;;
+        *) echo "error" ; exit 1 ;;
+    esac
+done
+
+# Set the script path in order to store the lock icon
+SCRIPTPATH="/usr/share/lockur"
+
+# Take screenshot using maim
+maim "$IMAGE"
+
+# Set the icon file to use, the one provided is blank
+ICON="$SCRIPTPATH/lock.png"
+
+LOCK=()
+while read LINE
+do
+    if [[ "$LINE" =~ ([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+) ]]; then
+        W=${BASH_REMATCH[1]}
+        H=${BASH_REMATCH[2]}
+        Xoff=${BASH_REMATCH[3]}
+        Yoff=${BASH_REMATCH[4]}
+        MIDXi=$(($W / 2 + $Xoff - 60  / 2))
+        MIDYi=$(($H / 2 + $Yoff - 60  / 2))
+        MIDXt=$(($W / 2 + $Xoff - 285 / 2))
+        MIDYt=$(($H / 2 + $Yoff + 320 / 2))
+        LOCK+=($ICON -geometry +$MIDXi+$MIDYi -composite)
+    fi
+done <<<"$(xrandr)"
+
+convert "$IMAGE" "${HUE[@]}" "${EFFECT[@]}" "${LOCK[@]}" "$IMAGE"
+
+# try to use a forked version of i3lock with prepared parameters
+if ! i3lock -u -n "${PARAM[@]}" -i "$IMAGE" > /dev/null 2>&1; then
+    # We have failed, lets get back to stock one
+    i3lock -u -n -i "$IMAGE"
+fi
